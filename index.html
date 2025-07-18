@@ -3,9 +3,70 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>ChatHub - Real-Time Chat Application</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    
+    <div class="app-container">
+        <!-- Login Screen -->
+        <div class="login-screen" id="loginScreen">
+            <div class="login-form">
+                <h1>ChatHub</h1>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" placeholder="Enter your username" required>
+                    </div>
+                    <button type="submit" class="btn-primary">Join Chat</button>
+                    <div class="error-message" id="loginError"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>ChatHub</h2>
+                <div class="user-info">
+                    Welcome, <span id="currentUser"></span>
+                </div>
+            </div>
+            
+            <div class="room-section">
+                <h3>Chat Rooms</h3>
+                <ul class="room-list" id="roomList"></ul>
+                <button class="create-room-btn" onclick="createRoom()">+ Create Room</button>
+            </div>
+        </div>
+
+        <!-- Chat Area -->
+        <div class="chat-area">
+            <div class="chat-header">
+                <button class="menu-toggle" onclick="toggleSidebar()" style="display: none;">☰</button>
+                <h3 id="currentRoomName">Select a room to start chatting</h3>
+                <div class="online-users">
+                    <span id="onlineCount">0</span> users online
+                </div>
+            </div>
+
+            <div class="messages-container" id="messagesContainer">
+                <div class="system-message">Welcome to ChatHub! Select a room to start chatting.</div>
+            </div>
+
+            <div class="message-input-container">
+                <div class="formatting-tools">
+                    <button class="format-btn" onclick="toggleFormat('bold')" title="Bold">B</button>
+                    <button class="format-btn" onclick="toggleFormat('italic')" title="Italic">I</button>
+                    <button class="format-btn" onclick="toggleFormat('underline')" title="Underline">U</button>
+                </div>
+                <form class="message-input-form" id="messageForm">
+                    <input type="text" class="message-input" id="messageInput" placeholder="Type your message..." disabled>
+                    <button type="submit" class="send-btn" id="sendBtn" disabled>Send</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
 </body>
 </html>

@@ -15,7 +15,8 @@
                 <form id="loginForm">
                     <div class="form-group">
                         <label for="username">Username</label>
-                        <input type="text" id="username" placeholder="Enter your username" required>
+                        <input type="text" id="username" placeholder="Enter your username" required maxlength="20" pattern="[A-Za-z0-9_\-]+">
+                        <small>Only letters, numbers, underscore and hyphen allowed</small>
                     </div>
                     <button type="submit" class="btn-primary">Join Chat</button>
                     <div class="error-message" id="loginError"></div>
@@ -29,13 +30,22 @@
                 <h2>ChatHub</h2>
                 <div class="user-info">
                     Welcome, <span id="currentUser"></span>
+                    <div class="connection-status" id="connectionStatus">
+                        <span class="status-indicator offline" id="statusIndicator"></span>
+                        <span id="statusText">Connecting...</span>
+                    </div>
                 </div>
             </div>
-            
+                         
             <div class="room-section">
                 <h3>Chat Rooms</h3>
                 <ul class="room-list" id="roomList"></ul>
                 <button class="create-room-btn" onclick="createRoom()">+ Create Room</button>
+            </div>
+
+            <div class="active-users-section">
+                <h4>Active Users in Room</h4>
+                <ul class="active-users-list" id="activeUsersList"></ul>
             </div>
         </div>
 
@@ -43,7 +53,10 @@
         <div class="chat-area">
             <div class="chat-header">
                 <button class="menu-toggle" onclick="toggleSidebar()" style="display: none;">☰</button>
-                <h3 id="currentRoomName">Select a room to start chatting</h3>
+                <div class="chat-info">
+                    <h3 id="currentRoomName">Select a room to start chatting</h3>
+                    <div class="typing-indicator" id="typingIndicator"></div>
+                </div>
                 <div class="online-users">
                     <span id="onlineCount">0</span> users online
                 </div>
@@ -55,18 +68,35 @@
 
             <div class="message-input-container">
                 <div class="formatting-tools">
-                    <button class="format-btn" onclick="toggleFormat('bold')" title="Bold">B</button>
-                    <button class="format-btn" onclick="toggleFormat('italic')" title="Italic">I</button>
-                    <button class="format-btn" onclick="toggleFormat('underline')" title="Underline">U</button>
+                    <button class="format-btn" onclick="toggleFormat('bold')" title="Bold"><strong>B</strong></button>
+                    <button class="format-btn" onclick="toggleFormat('italic')" title="Italic"><em>I</em></button>
+                    <button class="format-btn" onclick="toggleFormat('underline')" title="Underline"><u>U</u></button>
+                    <button class="format-btn" onclick="toggleEmojiPicker()" title="Emoji">😀</button>
                 </div>
                 <form class="message-input-form" id="messageForm">
-                    <input type="text" class="message-input" id="messageInput" placeholder="Type your message..." disabled>
+                    <input type="text" class="message-input" id="messageInput" placeholder="Type your message..." disabled maxlength="500">
+                    <div class="character-count" id="characterCount">0/500</div>
                     <button type="submit" class="send-btn" id="sendBtn" disabled>Send</button>
                 </form>
             </div>
         </div>
     </div>
 
+    <!-- Emoji Picker Modal -->
+    <div class="emoji-picker" id="emojiPicker" style="display: none;">
+        <div class="emoji-grid">
+            <span onclick="insertEmoji('😀')">😀</span>
+            <span onclick="insertEmoji('😂')">😂</span>
+            <span onclick="insertEmoji('😍')">😍</span>
+            <span onclick="insertEmoji('🤔')">🤔</span>
+            <span onclick="insertEmoji('👍')">👍</span>
+            <span onclick="insertEmoji('👎')">👎</span>
+            <span onclick="insertEmoji('❤️')">❤️</span>
+            <span onclick="insertEmoji('🎉')">🎉</span>
+            <span onclick="insertEmoji('🔥')">🔥</span>
+            <span onclick="insertEmoji('💯')">💯</span>
+        </div>
+    </div>
     <script src="script.js"></script>
 </body>
 </html>

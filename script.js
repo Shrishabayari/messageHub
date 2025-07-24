@@ -3,17 +3,29 @@ let currentUser = '';
 let currentRoom = '';
 let users = new Set();
 let rooms = {
-    'general': { name: 'General', users: new Set(), messages: [] },
-    'random': { name: 'Random', users: new Set(), messages: [] },
-    'tech': { name: 'Tech Talk', users: new Set(), messages: [] }
+    'general': { name: 'General', users: new Set(), messages: [], unreadCount: 0 },
+    'random': { name: 'Random', users: new Set(), messages: [], unreadCount: 0 },
+    'tech': { name: 'Tech Talk', users: new Set(), messages: [], unreadCount: 0 }
 };
 let activeFormats = new Set();
+let typingUsers = new Set();
+let typingTimeout = null;
+let isConnected = false;
+let messageHistory = [];
+let currentHistoryIndex = -1;
+let socket = null;
 
-// WebSocket simulation (for demo purposes)
-class ChatWebSocket {
+// Enhanced WebSocket simulation with more realistic behavior
+class EnhancedChatWebSocket {
     constructor() {
         this.listeners = {};
         this.connected = false;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
+        this.simulatedUsers = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank', 'Grace', 'Henry'];
+        this.messageQueue = [];
+        this.latency = 100;
+        this.userActivityIntervals = {};
     }
 
     on(event, callback) {
@@ -25,375 +37,550 @@ class ChatWebSocket {
 
     emit(event, data) {
         if (this.listeners[event]) {
-            this.listeners[event].forEach(callback => callback(data));
+            this.listeners[event].forEach(callback => {
+                setTimeout(() => callback(data), this.latency);
+            });
         }
     }
 
     connect() {
+        this.updateConnectionStatus('Connecting...');
+        
         setTimeout(() => {
-            this.connected = true;
-            this.emit('connect');
-        }, 500);
+            if (Math.random() > 0.1) {
+                this.connected = true;
+                this.reconnectAttempts = 0;
+                this.updateConnectionStatus('Connected', true);
+                this.emit('connect');
+                this.processMessageQueue();
+                this.simulateActiveUsers();
+                this.startUserActivitySimulation();
+            } else {
+                this.handleConnectionFailure();
+            }
+        }, 1000 + Math.random() * 2000);
+    }
+
+    handleConnectionFailure() {
+        this.connected = false;
+        this.updateConnectionStatus('Connection failed', false);
+        
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.reconnectAttempts++;
+            this.updateConnectionStatus(`Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+            setTimeout(() => this.connect(), 3000);
+        } else {
+            this.updateConnectionStatus('Offline', false);
+            showNotification('Connection failed. Please refresh the page.', 'error');
+        }
+    }
+
+    updateConnectionStatus(text, online = null) {
+        const statusText = document.getElementById('statusText');
+        const statusIndicator = document.getElementById('statusIndicator');
+        
+        if (statusText) statusText.textContent = text;
+        if (statusIndicator) {
+            if (online === true) {
+                statusIndicator.className = 'status-indicator online';
+                isConnected = true;
+            } else if (online === false) {
+                statusIndicator.className = 'status-indicator offline';
+                isConnected = false;
+            }
+        }
     }
 
     send(data) {
         if (this.connected) {
-            // Simulate message broadcasting to other users (not back to sender)
+            this.messageQueue.push(data);
+            this.processMessage(data);
+        } else {
+            showNotification('Not connected. Message will be sent when connection is restored.', 'warning');
+            this.messageQueue.push(data);
+        }
+    }
+
+    processMessageQueue() {
+        while (this.messageQueue.length > 0) {
+            const message = this.messageQueue.shift();
+            this.processMessage(message);
+        }
+    }
+
+    processMessage(data) {
+        if (data.type === 'message') {
+            this.broadcastMessage(data);
+        } else if (data.type === 'typing') {
+            this.broadcastTyping(data);
+        } else if (data.type === 'joinRoom') {
+            this.broadcastUserJoined(data);
+        } else if (data.type === 'leaveRoom') {
+            this.broadcastUserLeft(data);
+        }
+    }
+
+    broadcastMessage(data) {
+        if (rooms[data.room]) {
+            rooms[data.room].messages.push(data);
+        }
+        
+        setTimeout(() => {
+            this.simulateUserResponses(data);
+        }, 500 + Math.random() * 2000);
+    }
+
+    broadcastTyping(data) {
+        if (Math.random() < 0.3) {
+            const randomUser = this.simulatedUsers[Math.floor(Math.random() * this.simulatedUsers.length)];
             setTimeout(() => {
-                // Only broadcast to other users, not the sender
-                if (data.username !== currentUser) {
-                    this.emit('message', data);
+                this.emit('typing', { username: randomUser, room: data.room });
+            }, 1000 + Math.random() * 3000);
+        }
+    }
+
+    broadcastUserJoined(data) {
+        if (rooms[data.room]) {
+            rooms[data.room].users.add(data.username);
+        }
+        this.emit('userJoined', data);
+        updateOnlineCount();
+        renderRooms();
+        updateActiveUsersList();
+    }
+
+    broadcastUserLeft(data) {
+        if (rooms[data.room]) {
+            rooms[data.room].users.delete(data.username);
+        }
+        this.emit('userLeft', data);
+        updateOnlineCount();
+        renderRooms();
+        updateActiveUsersList();
+    }
+
+    simulateActiveUsers() {
+        Object.keys(rooms).forEach(roomId => {
+            const numUsers = Math.floor(Math.random() * 4) + 2;
+            for (let i = 0; i < numUsers; i++) {
+                const user = this.simulatedUsers[Math.floor(Math.random() * this.simulatedUsers.length)];
+                rooms[roomId].users.add(user);
+            }
+        });
+        updateOnlineCount();
+        renderRooms();
+        updateActiveUsersList();
+    }
+
+    startUserActivitySimulation() {
+        // Simulate users joining/leaving randomly
+        setInterval(() => {
+            if (Math.random() < 0.1) { // 10% chance every 5 seconds
+                this.simulateUserJoinLeave();
+            }
+        }, 5000);
+
+        // Simulate random messages
+        setInterval(() => {
+            if (Math.random() < 0.2) { // 20% chance every 10 seconds
+                this.simulateRandomMessage();
+            }
+        }, 10000);
+    }
+
+    simulateUserJoinLeave() {
+        const roomIds = Object.keys(rooms);
+        const randomRoom = roomIds[Math.floor(Math.random() * roomIds.length)];
+        const randomUser = this.simulatedUsers[Math.floor(Math.random() * this.simulatedUsers.length)];
+        
+        if (rooms[randomRoom].users.has(randomUser)) {
+            rooms[randomRoom].users.delete(randomUser);
+            this.emit('userLeft', { username: randomUser, room: randomRoom });
+        } else {
+            rooms[randomRoom].users.add(randomUser);
+            this.emit('userJoined', { username: randomUser, room: randomRoom });
+        }
+    }
+
+    simulateRandomMessage() {
+        const roomIds = Object.keys(rooms);
+        const randomRoom = roomIds[Math.floor(Math.random() * roomIds.length)];
+        const usersInRoom = Array.from(rooms[randomRoom].users);
+        
+        if (usersInRoom.length === 0) return;
+        
+        const randomUser = usersInRoom[Math.floor(Math.random() * usersInRoom.length)];
+        const randomMessages = [
+            'Hey everyone! 👋',
+            'How\'s everyone doing today?',
+            'Anyone working on something interesting?',
+            'Great weather today! ☀️',
+            'Just finished a great project!',
+            'Coffee time! ☕',
+            'Hope everyone is having a good day!',
+            'Any recommendations for good books?',
+            'Just watched an amazing movie!',
+            'Working late tonight 🌙'
+        ];
+        
+        const message = {
+            id: Date.now() + Math.random(),
+            username: randomUser,
+            room: randomRoom,
+            content: randomMessages[Math.floor(Math.random() * randomMessages.length)],
+            timestamp: new Date().toISOString(),
+            type: 'message'
+        };
+        
+        if (currentRoom === randomRoom) {
+            displayMessage(message);
+            playNotificationSound();
+        } else {
+            rooms[randomRoom].unreadCount++;
+            renderRooms();
+        }
+    }
+
+    simulateUserResponses(originalMessage) {
+        if (Math.random() < 0.4) {
+            const usersInRoom = Array.from(rooms[originalMessage.room].users);
+            const otherUsers = usersInRoom.filter(user => user !== originalMessage.username);
+            
+            if (otherUsers.length === 0) return;
+            
+            const randomUser = otherUsers[Math.floor(Math.random() * otherUsers.length)];
+            const responses = [
+                'That\'s really interesting! 🤔',
+                'I totally agree with that point.',
+                'Great insight! Thanks for sharing.',
+                'Nice! 👍',
+                'I had a similar experience.',
+                'That makes sense.',
+                'Absolutely! 💯',
+                'Good point there.',
+                'Thanks for the info! 🙏',
+                'Interesting perspective.',
+                'Cool! 😎',
+                'Awesome! 🎉',
+                'Right on! ✨',
+                'Very true!',
+                'I love that idea!'
+            ];
+            
+            const response = {
+                id: Date.now() + Math.random(),
+                username: randomUser,
+                room: originalMessage.room,
+                content: responses[Math.floor(Math.random() * responses.length)],
+                timestamp: new Date().toISOString(),
+                type: 'message'
+            };
+            
+            setTimeout(() => {
+                if (currentRoom === response.room) {
+                    displayMessage(response);
+                    playNotificationSound();
+                } else {
+                    rooms[response.room].unreadCount++;
+                    renderRooms();
                 }
-            }, 100);
+            }, 1000 + Math.random() * 4000);
         }
     }
 }
 
-const socket = new ChatWebSocket();
-
-// DOM elements
-const loginScreen = document.getElementById('loginScreen');
-const loginForm = document.getElementById('loginForm');
-const loginError = document.getElementById('loginError');
-const currentUserSpan = document.getElementById('currentUser');
-const roomList = document.getElementById('roomList');
-const messagesContainer = document.getElementById('messagesContainer');
-const messageForm = document.getElementById('messageForm');
-const messageInput = document.getElementById('messageInput');
-const sendBtn = document.getElementById('sendBtn');
-const currentRoomName = document.getElementById('currentRoomName');
-const onlineCount = document.getElementById('onlineCount');
-
-// Initialize app
+// Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
     initializeApp();
 });
 
 function initializeApp() {
     setupEventListeners();
-    setupWebSocket();
-    renderRooms();
-    updateOnlineCount();
+    initializeWebSocket();
+    loadMessageHistory();
+    updateCharacterCount();
 }
 
 function setupEventListeners() {
-    loginForm.addEventListener('submit', handleLogin);
-    messageForm.addEventListener('submit', handleSendMessage);
-    messageInput.addEventListener('keypress', handleKeyPress);
-    
-    // Mobile menu toggle
-    if (window.innerWidth <= 576) {
-        document.querySelector('.menu-toggle').style.display = 'block';
+    // Login form
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        loginForm.addEventListener('submit', handleLogin);
     }
-    
+
+    // Message form
+    const messageForm = document.getElementById('messageForm');
+    if (messageForm) {
+        messageForm.addEventListener('submit', handleSendMessage);
+    }
+
+    // Message input
+    const messageInput = document.getElementById('messageInput');
+    if (messageInput) {
+        messageInput.addEventListener('input', handleMessageInput);
+        messageInput.addEventListener('keydown', handleKeyDown);
+    }
+
+    // Window events
+    window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('resize', handleResize);
 }
 
-function setupWebSocket() {
+function initializeWebSocket() {
+    socket = new EnhancedChatWebSocket();
+    
     socket.on('connect', () => {
-        console.log('Connected to chat server');
+        showNotification('Connected to chat server!', 'success');
     });
 
-    socket.on('message', (data) => {
-        // Only display messages from other users, not our own
-        if (data.username !== currentUser && data.room === currentRoom) {
-            displayMessage(data);
-        }
-        
-        // Add message to room history
-        if (rooms[data.room]) {
-            rooms[data.room].messages.push(data);
-        }
+    socket.on('typing', (data) => {
+        handleTypingIndicator(data);
     });
 
     socket.on('userJoined', (data) => {
-        if (data.room === currentRoom && data.username !== currentUser) {
+        if (currentRoom === data.room) {
             displaySystemMessage(`${data.username} joined the room`);
         }
-        
-        if (rooms[data.room]) {
-            rooms[data.room].users.add(data.username);
-        }
-        updateOnlineCount();
     });
 
     socket.on('userLeft', (data) => {
-        if (data.room === currentRoom && data.username !== currentUser) {
+        if (currentRoom === data.room) {
             displaySystemMessage(`${data.username} left the room`);
         }
-        
-        if (rooms[data.room]) {
-            rooms[data.room].users.delete(data.username);
-        }
-        updateOnlineCount();
     });
-
-    socket.connect();
 }
 
 function handleLogin(e) {
     e.preventDefault();
     const username = document.getElementById('username').value.trim();
+    const errorElement = document.getElementById('loginError');
     
     if (!username) {
-        showError('Please enter a username');
+        errorElement.textContent = 'Please enter a username';
         return;
     }
-
-    if (username.length < 3) {
-        showError('Username must be at least 3 characters long');
+    
+    if (username.length > 20) {
+        errorElement.textContent = 'Username must be 20 characters or less';
         return;
     }
-
-    if (users.has(username)) {
-        showError('Username already taken. Please choose another one.');
+    
+    if (!/^[A-Za-z0-9_-]+$/.test(username)) {
+        errorElement.textContent = 'Username can only contain letters, numbers, underscore and hyphen';
         return;
     }
-
-    // Successful login
+    
     currentUser = username;
     users.add(username);
-    currentUserSpan.textContent = username;
     
-    loginScreen.classList.add('hidden');
-    messageInput.disabled = false;
+    // Hide login screen and show chat
+    document.getElementById('loginScreen').classList.add('hidden');
+    document.getElementById('currentUser').textContent = username;
     
-    showNotification(`Welcome to ChatHub, ${username}!`);
-}
-
-function showError(message) {
-    loginError.textContent = message;
-    setTimeout(() => {
-        loginError.textContent = '';
-    }, 3000);
+    // Connect to WebSocket
+    socket.connect();
+    
+    // Initialize UI
+    renderRooms();
+    enableMessageInput();
+    
+    showNotification(`Welcome to ChatHub, ${username}!`, 'success');
 }
 
 function handleSendMessage(e) {
     e.preventDefault();
-    const message = messageInput.value.trim();
+    const messageInput = document.getElementById('messageInput');
+    const content = messageInput.value.trim();
     
-    if (!message || !currentRoom) return;
-
-    const messageData = {
+    if (!content || !currentRoom || !isConnected) return;
+    
+    const message = {
         id: Date.now(),
         username: currentUser,
         room: currentRoom,
-        content: formatMessage(message),
-        timestamp: new Date().toISOString()
+        content: applyFormatting(content),
+        timestamp: new Date().toISOString(),
+        type: 'message'
     };
-
-    // Display message immediately for sender
-    displayMessage(messageData);
     
-    // Add to room messages
-    rooms[currentRoom].messages.push(messageData);
-    
-    // Simulate sending to other users (they would receive this through WebSocket)
-    setTimeout(() => {
-        // Simulate other users receiving the message
-        simulateOtherUsersReceiving(messageData);
-    }, 100);
-    
-    // Clear input
-    messageInput.value = '';
-    activeFormats.clear();
-    updateFormatButtons();
-}
-
-function simulateOtherUsersReceiving(messageData) {
-    // In a real application, this would be handled by the server
-    // For demo purposes, we'll simulate other users in the room
-    const otherUsers = ['Alice', 'Bob', 'Charlie', 'Diana'];
-    const currentRoomUsers = Array.from(rooms[currentRoom].users);
-    
-    // Simulate responses from other users occasionally
-    if (Math.random() < 0.3 && currentRoomUsers.length > 1) {
-        const randomUser = otherUsers[Math.floor(Math.random() * otherUsers.length)];
-        const responses = [
-            'That\'s interesting!',
-            'I agree with that.',
-            'Good point!',
-            'Thanks for sharing.',
-            'Nice!',
-            'Absolutely!',
-            'I see what you mean.'
-        ];
-        
-        setTimeout(() => {
-            const response = {
-                id: Date.now() + 1,
-                username: randomUser,
-                room: currentRoom,
-                content: responses[Math.floor(Math.random() * responses.length)],
-                timestamp: new Date().toISOString()
-            };
-            
-            if (currentRoom === response.room) {
-                displayMessage(response);
-                rooms[currentRoom].messages.push(response);
-            }
-        }, 1000 + Math.random() * 2000);
+    // Add to message history
+    messageHistory.unshift(content);
+    if (messageHistory.length > 50) {
+        messageHistory = messageHistory.slice(0, 50);
     }
+    currentHistoryIndex = -1;
+    
+    // Send message
+    socket.send(message);
+    displayMessage(message);
+    
+    // Clear input and reset formatting
+    messageInput.value = '';
+    clearFormatting();
+    updateCharacterCount();
+    stopTyping();
+    
+    // Scroll to bottom
+    scrollToBottom();
 }
 
-function handleKeyPress(e) {
+function handleMessageInput(e) {
+    updateCharacterCount();
+    handleTyping();
+}
+
+function handleKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSendMessage(e);
+    } else if (e.key === 'ArrowUp' && !e.shiftKey) {
+        e.preventDefault();
+        navigateHistory('up');
+    } else if (e.key === 'ArrowDown' && !e.shiftKey) {
+        e.preventDefault();
+        navigateHistory('down');
     }
 }
 
-function formatMessage(message) {
-    let formatted = message;
+function handleTyping() {
+    if (!currentRoom) return;
     
-    // Apply active formats
-    if (activeFormats.has('bold')) {
-        formatted = `<strong>${formatted}</strong>`;
+    socket.send({
+        type: 'typing',
+        username: currentUser,
+        room: currentRoom
+    });
+    
+    clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(stopTyping, 3000);
+}
+
+function stopTyping() {
+    if (typingTimeout) {
+        clearTimeout(typingTimeout);
+        typingTimeout = null;
     }
-    if (activeFormats.has('italic')) {
-        formatted = `<em>${formatted}</em>`;
+}
+
+function handleTypingIndicator(data) {
+    if (data.room !== currentRoom || data.username === currentUser) return;
+    
+    typingUsers.add(data.username);
+    updateTypingIndicator();
+    
+    setTimeout(() => {
+        typingUsers.delete(data.username);
+        updateTypingIndicator();
+    }, 3000);
+}
+
+function updateTypingIndicator() {
+    const indicator = document.getElementById('typingIndicator');
+    if (!indicator) return;
+    
+    if (typingUsers.size === 0) {
+        indicator.textContent = '';
+    } else if (typingUsers.size === 1) {
+        indicator.innerHTML = `${Array.from(typingUsers)[0]} is typing<span class="loading-dots"></span>`;
+    } else {
+        indicator.innerHTML = `${typingUsers.size} people are typing<span class="loading-dots"></span>`;
     }
-    if (activeFormats.has('underline')) {
-        formatted = `<u>${formatted}</u>`;
+}
+
+function navigateHistory(direction) {
+    const messageInput = document.getElementById('messageInput');
+    
+    if (direction === 'up') {
+        if (currentHistoryIndex < messageHistory.length - 1) {
+            currentHistoryIndex++;
+            messageInput.value = messageHistory[currentHistoryIndex];
+        }
+    } else if (direction === 'down') {
+        if (currentHistoryIndex > 0) {
+            currentHistoryIndex--;
+            messageInput.value = messageHistory[currentHistoryIndex];
+        } else if (currentHistoryIndex === 0) {
+            currentHistoryIndex = -1;
+            messageInput.value = '';
+        }
     }
     
-    // Auto-link URLs
-    formatted = formatted.replace(
+    updateCharacterCount();
+}
+
+function displayMessage(message) {
+    const messagesContainer = document.getElementById('messagesContainer');
+    if (!messagesContainer) return;
+    
+    const messageElement = document.createElement('div');
+    messageElement.className = `message ${message.username === currentUser ? 'own' : 'other'}`;
+    messageElement.dataset.messageId = message.id;
+    
+    const time = new Date(message.timestamp).toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+    });
+    
+    messageElement.innerHTML = `
+        <div class="message-header">
+            <span class="message-sender">${escapeHtml(message.username)}</span>
+            <span class="message-time">${time}</span>
+        </div>
+        <div class="message-content">${parseMessageContent(message.content)}</div>
+        ${message.username === currentUser ? '<div class="message-status">✓</div>' : ''}
+    `;
+    
+    messagesContainer.appendChild(messageElement);
+    scrollToBottom();
+    
+    // Remove old messages to prevent memory issues
+    const messages = messagesContainer.querySelectorAll('.message');
+    if (messages.length > 100) {
+        messages[0].remove();
+    }
+}
+
+function displaySystemMessage(content) {
+    const messagesContainer = document.getElementById('messagesContainer');
+    if (!messagesContainer) return;
+    
+    const messageElement = document.createElement('div');
+    messageElement.className = 'system-message';
+    messageElement.textContent = content;
+    
+    messagesContainer.appendChild(messageElement);
+    scrollToBottom();
+}
+
+function parseMessageContent(content) {
+    // Parse URLs
+    content = content.replace(
         /(https?:\/\/[^\s]+)/g,
         '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
     );
     
-    return formatted;
+    // Parse basic formatting
+    content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    content = content.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    content = content.replace(/__(.*?)__/g, '<u>$1</u>');
+    
+    return content;
 }
 
-function displayMessage(messageData) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${messageData.username === currentUser ? 'own' : 'other'}`;
+function applyFormatting(text) {
+    let formattedText = text;
     
-    const time = new Date(messageData.timestamp).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit'
-    });
-    
-    messageDiv.innerHTML = `
-        <div class="message-header">
-            <span class="message-sender">${messageData.username}</span>
-            <span class="message-time">${time}</span>
-        </div>
-        <div class="message-content">${messageData.content}</div>
-    `;
-    
-    messagesContainer.appendChild(messageDiv);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-
-function displaySystemMessage(message) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'system-message';
-    messageDiv.textContent = message;
-    messagesContainer.appendChild(messageDiv);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-
-function renderRooms() {
-    roomList.innerHTML = '';
-    
-    Object.entries(rooms).forEach(([roomId, room]) => {
-        const roomItem = document.createElement('li');
-        roomItem.className = 'room-item';
-        roomItem.onclick = () => joinRoom(roomId);
-        
-        roomItem.innerHTML = `
-            <div class="room-name">${room.name}</div>
-            <div class="room-users">${room.users.size} users</div>
-        `;
-        
-        roomList.appendChild(roomItem);
-    });
-}
-
-function joinRoom(roomId) {
-    if (currentRoom === roomId) return;
-    
-    // Leave current room
-    if (currentRoom && rooms[currentRoom]) {
-        rooms[currentRoom].users.delete(currentUser);
-        // Simulate notifying others that user left
-        setTimeout(() => {
-            socket.emit('userLeft', { username: currentUser, room: currentRoom });
-        }, 100);
+    if (activeFormats.has('bold')) {
+        formattedText = `**${formattedText}**`;
+    }
+    if (activeFormats.has('italic')) {
+        formattedText = `*${formattedText}*`;
+    }
+    if (activeFormats.has('underline')) {
+        formattedText = `__${formattedText}__`;
     }
     
-    // Join new room
-    currentRoom = roomId;
-    rooms[roomId].users.add(currentUser);
-    currentRoomName.textContent = rooms[roomId].name;
-    
-    // Update UI
-    document.querySelectorAll('.room-item').forEach(item => {
-        item.classList.remove('active');
-    });
-    event.target.closest('.room-item').classList.add('active');
-    
-    // Load room messages
-    loadRoomMessages(roomId);
-    
-    // Enable message input
-    messageInput.disabled = false;
-    sendBtn.disabled = false;
-    
-    // Simulate notifying others that user joined
-    setTimeout(() => {
-        socket.emit('userJoined', { username: currentUser, room: roomId });
-    }, 100);
-    
-    // Update online count
-    updateOnlineCount();
-    renderRooms();
-    
-    // Close sidebar on mobile
-    if (window.innerWidth <= 576) {
-        document.getElementById('sidebar').classList.remove('open');
-    }
-}
-
-function loadRoomMessages(roomId) {
-    messagesContainer.innerHTML = '';
-    
-    if (rooms[roomId].messages.length === 0) {
-        displaySystemMessage(`Welcome to ${rooms[roomId].name}! Start the conversation.`);
-        
-        // Add some simulated users to the room
-        const simulatedUsers = ['Alice', 'Bob', 'Charlie'];
-        simulatedUsers.forEach(user => {
-            rooms[roomId].users.add(user);
-        });
-    } else {
-        rooms[roomId].messages.forEach(message => {
-            displayMessage(message);
-        });
-    }
-}
-
-function createRoom() {
-    const roomName = prompt('Enter room name:');
-    if (!roomName || roomName.trim() === '') return;
-    
-    const roomId = roomName.toLowerCase().replace(/\s+/g, '-');
-    
-    if (rooms[roomId]) {
-        alert('Room already exists!');
-        return;
-    }
-    
-    rooms[roomId] = {
-        name: roomName.trim(),
-        users: new Set(),
-        messages: []
-    };
-    
-    renderRooms();
-    showNotification(`Room "${roomName}" created successfully!`);
+    return formattedText;
 }
 
 function toggleFormat(format) {
@@ -408,37 +595,230 @@ function toggleFormat(format) {
     }
 }
 
-function updateFormatButtons() {
+function clearFormatting() {
+    activeFormats.clear();
     document.querySelectorAll('.format-btn').forEach(btn => {
         btn.classList.remove('active');
     });
 }
 
-function updateOnlineCount() {
-    const totalUsers = currentRoom ? rooms[currentRoom].users.size : 0;
-    onlineCount.textContent = totalUsers;
+function insertEmoji(emoji) {
+    const messageInput = document.getElementById('messageInput');
+    const currentValue = messageInput.value;
+    const cursorPos = messageInput.selectionStart;
+    
+    const newValue = currentValue.slice(0, cursorPos) + emoji + currentValue.slice(cursorPos);
+    messageInput.value = newValue;
+    messageInput.focus();
+    messageInput.setSelectionRange(cursorPos + emoji.length, cursorPos + emoji.length);
+    
+    updateCharacterCount();
+    toggleEmojiPicker();
 }
 
-function toggleSidebar() {
-    document.getElementById('sidebar').classList.toggle('open');
-}
-
-function handleResize() {
-    if (window.innerWidth <= 576) {
-        document.querySelector('.menu-toggle').style.display = 'block';
+function toggleEmojiPicker() {
+    const emojiPicker = document.getElementById('emojiPicker');
+    if (emojiPicker.style.display === 'none' || !emojiPicker.style.display) {
+        emojiPicker.style.display = 'block';
+        // Close picker when clicking outside
+        setTimeout(() => {
+            document.addEventListener('click', closeEmojiPicker);
+        }, 0);
     } else {
-        document.querySelector('.menu-toggle').style.display = 'none';
-        document.getElementById('sidebar').classList.remove('open');
+        emojiPicker.style.display = 'none';
+        document.removeEventListener('click', closeEmojiPicker);
     }
 }
 
-function showNotification(message) {
+function closeEmojiPicker(e) {
+    const emojiPicker = document.getElementById('emojiPicker');
+    if (!emojiPicker.contains(e.target) && !e.target.classList.contains('format-btn')) {
+        emojiPicker.style.display = 'none';
+        document.removeEventListener('click', closeEmojiPicker);
+    }
+}
+
+function updateCharacterCount() {
+    const messageInput = document.getElementById('messageInput');
+    const characterCount = document.getElementById('characterCount');
+    const sendBtn = document.getElementById('sendBtn');
+    
+    if (!messageInput || !characterCount) return;
+    
+    const length = messageInput.value.length;
+    characterCount.textContent = `${length}/500`;
+    
+    if (length >= 450) {
+        characterCount.style.color = '#dc3545';
+    } else if (length >= 400) {
+        characterCount.style.color = '#ffc107';
+    } else {
+        characterCount.style.color = '#6c757d';
+    }
+    
+    if (sendBtn) {
+        sendBtn.disabled = length === 0 || length > 500 || !isConnected;
+    }
+}
+
+function createRoom() {
+    const roomName = prompt('Enter room name:');
+    if (!roomName || !roomName.trim()) return;
+    
+    const roomId = roomName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (rooms[roomId]) {
+        showNotification('Room already exists!', 'error');
+        return;
+    }
+    
+    rooms[roomId] = {
+        name: roomName.trim(),
+        users: new Set([currentUser]),
+        messages: [],
+        unreadCount: 0
+    };
+    
+    renderRooms();
+    joinRoom(roomId);
+    showNotification(`Room "${roomName}" created!`, 'success');
+}
+
+function joinRoom(roomId) {
+    if (!rooms[roomId]) return;
+    
+    // Leave current room
+    if (currentRoom && rooms[currentRoom]) {
+        rooms[currentRoom].users.delete(currentUser);
+        socket.send({
+            type: 'leaveRoom',
+            username: currentUser,
+            room: currentRoom
+        });
+    }
+    
+    // Join new room
+    currentRoom = roomId;
+    rooms[roomId].users.add(currentUser);
+    rooms[roomId].unreadCount = 0;
+    
+    socket.send({
+        type: 'joinRoom',
+        username: currentUser,
+        room: roomId
+    });
+    
+    // Update UI
+    document.getElementById('currentRoomName').textContent = rooms[roomId].name;
+    renderRooms();
+    loadRoomMessages(roomId);
+    updateActiveUsersList();
+    enableMessageInput();
+    
+    // Clear typing users
+    typingUsers.clear();
+    updateTypingIndicator();
+}
+
+function loadRoomMessages(roomId) {
+    const messagesContainer = document.getElementById('messagesContainer');
+    if (!messagesContainer) return;
+    
+    messagesContainer.innerHTML = '';
+    
+    if (rooms[roomId] && rooms[roomId].messages.length > 0) {
+        rooms[roomId].messages.forEach(message => {
+            displayMessage(message);
+        });
+    } else {
+        displaySystemMessage(`Welcome to ${rooms[roomId].name}! Start the conversation.`);
+    }
+}
+
+function renderRooms() {
+    const roomList = document.getElementById('roomList');
+    if (!roomList) return;
+    
+    roomList.innerHTML = '';
+    
+    Object.entries(rooms).forEach(([roomId, room]) => {
+        const roomElement = document.createElement('li');
+        roomElement.className = `room-item ${currentRoom === roomId ? 'active' : ''}`;
+        roomElement.onclick = () => joinRoom(roomId);
+        
+        roomElement.innerHTML = `
+            <div class="room-name">${escapeHtml(room.name)}</div>
+            <div class="room-users">${room.users.size} users</div>
+            ${room.unreadCount > 0 ? `<div class="unread-count">${room.unreadCount}</div>` : ''}
+        `;
+        
+        roomList.appendChild(roomElement);
+    });
+}
+
+function updateActiveUsersList() {
+    const activeUsersList = document.getElementById('activeUsersList');
+    if (!activeUsersList || !currentRoom || !rooms[currentRoom]) return;
+    
+    activeUsersList.innerHTML = '';
+    
+    Array.from(rooms[currentRoom].users).sort().forEach(username => {
+        const userElement = document.createElement('li');
+        userElement.innerHTML = `
+            <div class="user-avatar">${username.charAt(0).toUpperCase()}</div>
+            ${escapeHtml(username)}
+        `;
+        activeUsersList.appendChild(userElement);
+    });
+}
+
+function updateOnlineCount() {
+    const onlineCount = document.getElementById('onlineCount');
+    if (!onlineCount) return;
+    
+    const totalUsers = new Set();
+    Object.values(rooms).forEach(room => {
+        room.users.forEach(user => totalUsers.add(user));
+    });
+    
+    onlineCount.textContent = totalUsers.size;
+}
+
+function enableMessageInput() {
+    const messageInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    
+    if (messageInput) {
+        messageInput.disabled = !currentRoom || !isConnected;
+        messageInput.placeholder = currentRoom && isConnected 
+            ? 'Type your message...' 
+            : 'Select a room to start chatting...';
+    }
+    
+    if (sendBtn) {
+        sendBtn.disabled = !currentRoom || !isConnected || !messageInput.value.trim();
+    }
+}
+
+function scrollToBottom() {
+    const messagesContainer = document.getElementById('messagesContainer');
+    if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+}
+
+function showNotification(message, type = 'success') {
     const notification = document.createElement('div');
-    notification.className = 'notification';
+    notification.className = `notification ${type}`;
     notification.textContent = message;
+    
     document.body.appendChild(notification);
     
     setTimeout(() => {
-        notification.remove();
+        notification.style.opacity = '0';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
     }, 3000);
 }

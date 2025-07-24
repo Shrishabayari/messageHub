@@ -14,280 +14,12 @@ let isConnected = false;
 let messageHistory = [];
 let currentHistoryIndex = -1;
 let socket = null;
+let reconnectAttempts = 0;
+let maxReconnectAttempts = 5;
+let reconnectTimeout = null;
 
-// Enhanced WebSocket simulation with more realistic behavior
-class EnhancedChatWebSocket {
-    constructor() {
-        this.listeners = {};
-        this.connected = false;
-        this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 5;
-        this.simulatedUsers = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank', 'Grace', 'Henry'];
-        this.messageQueue = [];
-        this.latency = 100;
-        this.userActivityIntervals = {};
-    }
-
-    on(event, callback) {
-        if (!this.listeners[event]) {
-            this.listeners[event] = [];
-        }
-        this.listeners[event].push(callback);
-    }
-
-    emit(event, data) {
-        if (this.listeners[event]) {
-            this.listeners[event].forEach(callback => {
-                setTimeout(() => callback(data), this.latency);
-            });
-        }
-    }
-
-    connect() {
-        this.updateConnectionStatus('Connecting...');
-        
-        setTimeout(() => {
-            if (Math.random() > 0.1) {
-                this.connected = true;
-                this.reconnectAttempts = 0;
-                this.updateConnectionStatus('Connected', true);
-                this.emit('connect');
-                this.processMessageQueue();
-                this.simulateActiveUsers();
-                this.startUserActivitySimulation();
-            } else {
-                this.handleConnectionFailure();
-            }
-        }, 1000 + Math.random() * 2000);
-    }
-
-    handleConnectionFailure() {
-        this.connected = false;
-        this.updateConnectionStatus('Connection failed', false);
-        
-        if (this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.reconnectAttempts++;
-            this.updateConnectionStatus(`Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-            setTimeout(() => this.connect(), 3000);
-        } else {
-            this.updateConnectionStatus('Offline', false);
-            showNotification('Connection failed. Please refresh the page.', 'error');
-        }
-    }
-
-    updateConnectionStatus(text, online = null) {
-        const statusText = document.getElementById('statusText');
-        const statusIndicator = document.getElementById('statusIndicator');
-        
-        if (statusText) statusText.textContent = text;
-        if (statusIndicator) {
-            if (online === true) {
-                statusIndicator.className = 'status-indicator online';
-                isConnected = true;
-            } else if (online === false) {
-                statusIndicator.className = 'status-indicator offline';
-                isConnected = false;
-            }
-        }
-    }
-
-    send(data) {
-        if (this.connected) {
-            this.messageQueue.push(data);
-            this.processMessage(data);
-        } else {
-            showNotification('Not connected. Message will be sent when connection is restored.', 'warning');
-            this.messageQueue.push(data);
-        }
-    }
-
-    processMessageQueue() {
-        while (this.messageQueue.length > 0) {
-            const message = this.messageQueue.shift();
-            this.processMessage(message);
-        }
-    }
-
-    processMessage(data) {
-        if (data.type === 'message') {
-            this.broadcastMessage(data);
-        } else if (data.type === 'typing') {
-            this.broadcastTyping(data);
-        } else if (data.type === 'joinRoom') {
-            this.broadcastUserJoined(data);
-        } else if (data.type === 'leaveRoom') {
-            this.broadcastUserLeft(data);
-        }
-    }
-
-    broadcastMessage(data) {
-        if (rooms[data.room]) {
-            rooms[data.room].messages.push(data);
-        }
-        
-        setTimeout(() => {
-            this.simulateUserResponses(data);
-        }, 500 + Math.random() * 2000);
-    }
-
-    broadcastTyping(data) {
-        if (Math.random() < 0.3) {
-            const randomUser = this.simulatedUsers[Math.floor(Math.random() * this.simulatedUsers.length)];
-            setTimeout(() => {
-                this.emit('typing', { username: randomUser, room: data.room });
-            }, 1000 + Math.random() * 3000);
-        }
-    }
-
-    broadcastUserJoined(data) {
-        if (rooms[data.room]) {
-            rooms[data.room].users.add(data.username);
-        }
-        this.emit('userJoined', data);
-        updateOnlineCount();
-        renderRooms();
-        updateActiveUsersList();
-    }
-
-    broadcastUserLeft(data) {
-        if (rooms[data.room]) {
-            rooms[data.room].users.delete(data.username);
-        }
-        this.emit('userLeft', data);
-        updateOnlineCount();
-        renderRooms();
-        updateActiveUsersList();
-    }
-
-    simulateActiveUsers() {
-        Object.keys(rooms).forEach(roomId => {
-            const numUsers = Math.floor(Math.random() * 4) + 2;
-            for (let i = 0; i < numUsers; i++) {
-                const user = this.simulatedUsers[Math.floor(Math.random() * this.simulatedUsers.length)];
-                rooms[roomId].users.add(user);
-            }
-        });
-        updateOnlineCount();
-        renderRooms();
-        updateActiveUsersList();
-    }
-
-    startUserActivitySimulation() {
-        // Simulate users joining/leaving randomly
-        setInterval(() => {
-            if (Math.random() < 0.1) { // 10% chance every 5 seconds
-                this.simulateUserJoinLeave();
-            }
-        }, 5000);
-
-        // Simulate random messages
-        setInterval(() => {
-            if (Math.random() < 0.2) { // 20% chance every 10 seconds
-                this.simulateRandomMessage();
-            }
-        }, 10000);
-    }
-
-    simulateUserJoinLeave() {
-        const roomIds = Object.keys(rooms);
-        const randomRoom = roomIds[Math.floor(Math.random() * roomIds.length)];
-        const randomUser = this.simulatedUsers[Math.floor(Math.random() * this.simulatedUsers.length)];
-        
-        if (rooms[randomRoom].users.has(randomUser)) {
-            rooms[randomRoom].users.delete(randomUser);
-            this.emit('userLeft', { username: randomUser, room: randomRoom });
-        } else {
-            rooms[randomRoom].users.add(randomUser);
-            this.emit('userJoined', { username: randomUser, room: randomRoom });
-        }
-    }
-
-    simulateRandomMessage() {
-        const roomIds = Object.keys(rooms);
-        const randomRoom = roomIds[Math.floor(Math.random() * roomIds.length)];
-        const usersInRoom = Array.from(rooms[randomRoom].users);
-        
-        if (usersInRoom.length === 0) return;
-        
-        const randomUser = usersInRoom[Math.floor(Math.random() * usersInRoom.length)];
-        const randomMessages = [
-            'Hey everyone! 👋',
-            'How\'s everyone doing today?',
-            'Anyone working on something interesting?',
-            'Great weather today! ☀️',
-            'Just finished a great project!',
-            'Coffee time! ☕',
-            'Hope everyone is having a good day!',
-            'Any recommendations for good books?',
-            'Just watched an amazing movie!',
-            'Working late tonight 🌙'
-        ];
-        
-        const message = {
-            id: Date.now() + Math.random(),
-            username: randomUser,
-            room: randomRoom,
-            content: randomMessages[Math.floor(Math.random() * randomMessages.length)],
-            timestamp: new Date().toISOString(),
-            type: 'message'
-        };
-        
-        if (currentRoom === randomRoom) {
-            displayMessage(message);
-            playNotificationSound();
-        } else {
-            rooms[randomRoom].unreadCount++;
-            renderRooms();
-        }
-    }
-
-    simulateUserResponses(originalMessage) {
-        if (Math.random() < 0.4) {
-            const usersInRoom = Array.from(rooms[originalMessage.room].users);
-            const otherUsers = usersInRoom.filter(user => user !== originalMessage.username);
-            
-            if (otherUsers.length === 0) return;
-            
-            const randomUser = otherUsers[Math.floor(Math.random() * otherUsers.length)];
-            const responses = [
-                'That\'s really interesting! 🤔',
-                'I totally agree with that point.',
-                'Great insight! Thanks for sharing.',
-                'Nice! 👍',
-                'I had a similar experience.',
-                'That makes sense.',
-                'Absolutely! 💯',
-                'Good point there.',
-                'Thanks for the info! 🙏',
-                'Interesting perspective.',
-                'Cool! 😎',
-                'Awesome! 🎉',
-                'Right on! ✨',
-                'Very true!',
-                'I love that idea!'
-            ];
-            
-            const response = {
-                id: Date.now() + Math.random(),
-                username: randomUser,
-                room: originalMessage.room,
-                content: responses[Math.floor(Math.random() * responses.length)],
-                timestamp: new Date().toISOString(),
-                type: 'message'
-            };
-            
-            setTimeout(() => {
-                if (currentRoom === response.room) {
-                    displayMessage(response);
-                    playNotificationSound();
-                } else {
-                    rooms[response.room].unreadCount++;
-                    renderRooms();
-                }
-            }, 1000 + Math.random() * 4000);
-        }
-    }
-}
+// WebSocket server URL - Change this to your server URL
+const WS_SERVER_URL = 'ws://localhost:8080';
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -296,9 +28,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function initializeApp() {
     setupEventListeners();
-    initializeWebSocket();
     loadMessageHistory();
     updateCharacterCount();
+    // Don't connect WebSocket until user logs in
 }
 
 function setupEventListeners() {
@@ -327,27 +59,203 @@ function setupEventListeners() {
 }
 
 function initializeWebSocket() {
-    socket = new EnhancedChatWebSocket();
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+    }
+
+    updateConnectionStatus('Connecting...');
     
-    socket.on('connect', () => {
-        showNotification('Connected to chat server!', 'success');
-    });
+    try {
+        socket = new WebSocket(WS_SERVER_URL);
+        
+        socket.onopen = function() {
+            console.log('WebSocket connected');
+            isConnected = true;
+            reconnectAttempts = 0;
+            updateConnectionStatus('Connected', true);
+            showNotification('Connected to chat server!', 'success');
+            
+            // Send user authentication
+            sendMessage({
+                type: 'auth',
+                username: currentUser
+            });
+            
+            // Clear any reconnect timeouts
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
+            }
+        };
+        
+        socket.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                handleServerMessage(data);
+            } catch (error) {
+                console.error('Error parsing message:', error);
+            }
+        };
+        
+        socket.onclose = function(event) {
+            console.log('WebSocket disconnected:', event.code, event.reason);
+            isConnected = false;
+            updateConnectionStatus('Disconnected', false);
+            enableMessageInput();
+            
+            // Attempt to reconnect if not a normal closure
+            if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
+                attemptReconnect();
+            } else if (reconnectAttempts >= maxReconnectAttempts) {
+                updateConnectionStatus('Connection failed', false);
+                showNotification('Unable to connect to server. Please refresh the page.', 'error');
+            }
+        };
+        
+        socket.onerror = function(error) {
+            console.error('WebSocket error:', error);
+            updateConnectionStatus('Connection error', false);
+            showNotification('Connection error occurred', 'error');
+        };
+        
+    } catch (error) {
+        console.error('Failed to create WebSocket:', error);
+        updateConnectionStatus('Connection failed', false);
+        showNotification('Failed to connect to server', 'error');
+        attemptReconnect();
+    }
+}
 
-    socket.on('typing', (data) => {
-        handleTypingIndicator(data);
-    });
+function attemptReconnect() {
+    if (reconnectAttempts >= maxReconnectAttempts) {
+        updateConnectionStatus('Connection failed', false);
+        showNotification('Maximum reconnection attempts reached', 'error');
+        return;
+    }
+    
+    reconnectAttempts++;
+    updateConnectionStatus(`Reconnecting... (${reconnectAttempts}/${maxReconnectAttempts})`);
+    
+    reconnectTimeout = setTimeout(() => {
+        console.log(`Reconnection attempt ${reconnectAttempts}`);
+        initializeWebSocket();
+    }, 3000 * reconnectAttempts); // Exponential backoff
+}
 
-    socket.on('userJoined', (data) => {
-        if (currentRoom === data.room) {
-            displaySystemMessage(`${data.username} joined the room`);
+function handleServerMessage(data) {
+    switch(data.type) {
+        case 'message':
+            if (data.room === currentRoom) {
+                displayMessage(data);
+                if (data.username !== currentUser) {
+                    playNotificationSound();
+                }
+            } else {
+                // Message in other room - increment unread count
+                if (rooms[data.room]) {
+                    rooms[data.room].unreadCount++;
+                    renderRooms();
+                }
+            }
+            break;
+            
+        case 'userJoined':
+            if (rooms[data.room]) {
+                rooms[data.room].users.add(data.username);
+            }
+            if (currentRoom === data.room && data.username !== currentUser) {
+                displaySystemMessage(`${data.username} joined the room`);
+            }
+            updateOnlineCount();
+            renderRooms();
+            updateActiveUsersList();
+            break;
+            
+        case 'userLeft':
+            if (rooms[data.room]) {
+                rooms[data.room].users.delete(data.username);
+            }
+            if (currentRoom === data.room && data.username !== currentUser) {
+                displaySystemMessage(`${data.username} left the room`);
+            }
+            updateOnlineCount();
+            renderRooms();
+            updateActiveUsersList();
+            break;
+            
+        case 'typing':
+            if (data.room === currentRoom && data.username !== currentUser) {
+                handleTypingIndicator(data);
+            }
+            break;
+            
+        case 'stopTyping':
+            if (data.room === currentRoom) {
+                typingUsers.delete(data.username);
+                updateTypingIndicator();
+            }
+            break;
+            
+        case 'roomUsers':
+            if (rooms[data.room]) {
+                rooms[data.room].users.clear();
+                data.users.forEach(user => rooms[data.room].users.add(user));
+                updateOnlineCount();
+                renderRooms();
+                updateActiveUsersList();
+            }
+            break;
+            
+        case 'roomCreated':
+            rooms[data.roomId] = {
+                name: data.roomName,
+                users: new Set(),
+                messages: [],
+                unreadCount: 0
+            };
+            renderRooms();
+            showNotification(`Room "${data.roomName}" created!`, 'success');
+            break;
+            
+        case 'error':
+            showNotification(data.message || 'An error occurred', 'error');
+            break;
+            
+        case 'authSuccess':
+            showNotification(`Welcome to ChatHub, ${data.username}!`, 'success');
+            // Auto-join general room
+            joinRoom('general');
+            break;
+            
+        default:
+            console.log('Unknown message type:', data.type);
+    }
+}
+
+function sendMessage(data) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(data));
+        return true;
+    } else {
+        showNotification('Not connected to server', 'warning');
+        return false;
+    }
+}
+
+function updateConnectionStatus(text, online = null) {
+    const statusText = document.getElementById('statusText');
+    const statusIndicator = document.getElementById('statusIndicator');
+    
+    if (statusText) statusText.textContent = text;
+    if (statusIndicator) {
+        if (online === true) {
+            statusIndicator.className = 'status-indicator online';
+            isConnected = true;
+        } else if (online === false) {
+            statusIndicator.className = 'status-indicator offline';
+            isConnected = false;
         }
-    });
-
-    socket.on('userLeft', (data) => {
-        if (currentRoom === data.room) {
-            displaySystemMessage(`${data.username} left the room`);
-        }
-    });
+    }
 }
 
 function handleLogin(e) {
@@ -378,13 +286,11 @@ function handleLogin(e) {
     document.getElementById('currentUser').textContent = username;
     
     // Connect to WebSocket
-    socket.connect();
+    initializeWebSocket();
     
     // Initialize UI
     renderRooms();
     enableMessageInput();
-    
-    showNotification(`Welcome to ChatHub, ${username}!`, 'success');
 }
 
 function handleSendMessage(e) {
@@ -395,12 +301,11 @@ function handleSendMessage(e) {
     if (!content || !currentRoom || !isConnected) return;
     
     const message = {
-        id: Date.now(),
+        type: 'message',
         username: currentUser,
         room: currentRoom,
         content: applyFormatting(content),
-        timestamp: new Date().toISOString(),
-        type: 'message'
+        timestamp: new Date().toISOString()
     };
     
     // Add to message history
@@ -410,18 +315,17 @@ function handleSendMessage(e) {
     }
     currentHistoryIndex = -1;
     
-    // Send message
-    socket.send(message);
-    displayMessage(message);
-    
-    // Clear input and reset formatting
-    messageInput.value = '';
-    clearFormatting();
-    updateCharacterCount();
-    stopTyping();
-    
-    // Scroll to bottom
-    scrollToBottom();
+    // Send message to server
+    if (sendMessage(message)) {
+        // Clear input and reset formatting
+        messageInput.value = '';
+        clearFormatting();
+        updateCharacterCount();
+        stopTyping();
+        
+        // Scroll to bottom
+        scrollToBottom();
+    }
 }
 
 function handleMessageInput(e) {
@@ -443,9 +347,9 @@ function handleKeyDown(e) {
 }
 
 function handleTyping() {
-    if (!currentRoom) return;
+    if (!currentRoom || !isConnected) return;
     
-    socket.send({
+    sendMessage({
         type: 'typing',
         username: currentUser,
         room: currentRoom
@@ -459,6 +363,14 @@ function stopTyping() {
     if (typingTimeout) {
         clearTimeout(typingTimeout);
         typingTimeout = null;
+    }
+    
+    if (currentRoom && isConnected) {
+        sendMessage({
+            type: 'stopTyping',
+            username: currentUser,
+            room: currentRoom
+        });
     }
 }
 
@@ -514,7 +426,7 @@ function displayMessage(message) {
     
     const messageElement = document.createElement('div');
     messageElement.className = `message ${message.username === currentUser ? 'own' : 'other'}`;
-    messageElement.dataset.messageId = message.id;
+    messageElement.dataset.messageId = message.id || Date.now();
     
     const time = new Date(message.timestamp).toLocaleTimeString([], { 
         hour: '2-digit', 
@@ -671,25 +583,21 @@ function createRoom() {
         return;
     }
     
-    rooms[roomId] = {
-        name: roomName.trim(),
-        users: new Set([currentUser]),
-        messages: [],
-        unreadCount: 0
-    };
-    
-    renderRooms();
-    joinRoom(roomId);
-    showNotification(`Room "${roomName}" created!`, 'success');
+    // Send room creation request to server
+    sendMessage({
+        type: 'createRoom',
+        roomId: roomId,
+        roomName: roomName.trim(),
+        creator: currentUser
+    });
 }
 
 function joinRoom(roomId) {
-    if (!rooms[roomId]) return;
+    if (!rooms[roomId] || !isConnected) return;
     
     // Leave current room
     if (currentRoom && rooms[currentRoom]) {
-        rooms[currentRoom].users.delete(currentUser);
-        socket.send({
+        sendMessage({
             type: 'leaveRoom',
             username: currentUser,
             room: currentRoom
@@ -698,10 +606,9 @@ function joinRoom(roomId) {
     
     // Join new room
     currentRoom = roomId;
-    rooms[roomId].users.add(currentUser);
     rooms[roomId].unreadCount = 0;
     
-    socket.send({
+    sendMessage({
         type: 'joinRoom',
         username: currentUser,
         room: roomId
@@ -854,12 +761,16 @@ function toggleSidebar() {
 }
 
 function handleBeforeUnload(e) {
-    if (currentRoom && currentUser) {
-        socket.send({
+    if (currentRoom && currentUser && isConnected) {
+        sendMessage({
             type: 'leaveRoom',
             username: currentUser,
             room: currentRoom
         });
+    }
+    
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close(1000, 'Page unload');
     }
 }
 

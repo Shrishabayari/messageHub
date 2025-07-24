@@ -822,3 +822,90 @@ function showNotification(message, type = 'success') {
         }, 300);
     }, 3000);
 }
+
+function playNotificationSound() {
+    // Create a simple beep sound using Web Audio API
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.1);
+    } catch (e) {
+        // Silently fail if audio context is not available
+    }
+}
+
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) {
+        sidebar.classList.toggle('open');
+    }
+}
+
+function handleBeforeUnload(e) {
+    if (currentRoom && currentUser) {
+        socket.send({
+            type: 'leaveRoom',
+            username: currentUser,
+            room: currentRoom
+        });
+    }
+}
+
+function handleResize() {
+    // Adjust UI for mobile devices
+    const isMobile = window.innerWidth <= 576;
+    const menuToggle = document.querySelector('.menu-toggle');
+    
+    if (menuToggle) {
+        menuToggle.style.display = isMobile ? 'block' : 'none';
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function loadMessageHistory() {
+    // This would typically load from localStorage or server
+    // For now, we'll just initialize an empty history
+    messageHistory = [];
+}
+
+// Add some keyboard shortcuts
+document.addEventListener('keydown', function(e) {
+    // Ctrl/Cmd + K to focus message input
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        const messageInput = document.getElementById('messageInput');
+        if (messageInput) {
+            messageInput.focus();
+        }
+    }
+    
+    // Escape to close emoji picker
+    if (e.key === 'Escape') {
+        const emojiPicker = document.getElementById('emojiPicker');
+        if (emojiPicker && emojiPicker.style.display === 'block') {
+            emojiPicker.style.display = 'none';
+            document.removeEventListener('click', closeEmojiPicker);
+        }
+    }
+});
+
+// Initialize responsive behavior
+handleResize();
+window.addEventListener('resize', handleResize);

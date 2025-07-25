@@ -2,6 +2,8 @@
 
 A modern, feature-rich real-time chat application built with HTML, CSS, JavaScript, and Node.js WebSocket server.
 
+![ChatHub Demo](https://img.shields.io/badge/Status-Active-green) ![Node.js](https://img.shields.io/badge/Node.js-14%2B-brightgreen) ![WebSocket](https://img.shields.io/badge/WebSocket-Supported-blue)
+
 ## 🌟 Features
 
 ### Core Features

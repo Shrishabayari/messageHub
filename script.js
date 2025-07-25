@@ -17,6 +17,7 @@ let socket = null;
 let reconnectAttempts = 0;
 let maxReconnectAttempts = 5;
 let reconnectTimeout = null;
+let isLoggingIn = false; // Flag to track login process
 
 // WebSocket server URL - Change this to your server URL
 const WS_SERVER_URL = 'ws://localhost:8080';
@@ -73,13 +74,21 @@ function initializeWebSocket() {
             isConnected = true;
             reconnectAttempts = 0;
             updateConnectionStatus('Connected', true);
-            showNotification('Connected to chat server!', 'success');
             
-            // Send user authentication
-            sendMessage({
-                type: 'auth',
-                username: currentUser
-            });
+            // Only send authentication if we have a valid currentUser
+            if (currentUser && currentUser.trim() !== '') {
+                sendMessage({
+                    type: 'auth',
+                    username: currentUser
+                });
+            } else {
+                // If no valid user, close connection and reset
+                console.error('No valid username for authentication');
+                resetLoginForm();
+                showLoginError('Invalid username. Please try again.');
+                socket.close();
+                return;
+            }
             
             // Clear any reconnect timeouts
             if (reconnectTimeout) {
@@ -103,6 +112,13 @@ function initializeWebSocket() {
             updateConnectionStatus('Disconnected', false);
             enableMessageInput();
             
+            // If we're in the login process and connection closed, reset login
+            if (isLoggingIn) {
+                resetLoginForm();
+                showLoginError('Connection failed. Please try again.');
+                return;
+            }
+            
             // Attempt to reconnect if not a normal closure
             if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
                 attemptReconnect();
@@ -115,14 +131,27 @@ function initializeWebSocket() {
         socket.onerror = function(error) {
             console.error('WebSocket error:', error);
             updateConnectionStatus('Connection error', false);
-            showNotification('Connection error occurred', 'error');
+            
+            // If we're in the login process, show error on login screen
+            if (isLoggingIn) {
+                resetLoginForm();
+                showLoginError('Connection error occurred. Please try again.');
+            } else {
+                showNotification('Connection error occurred', 'error');
+            }
         };
         
     } catch (error) {
         console.error('Failed to create WebSocket:', error);
         updateConnectionStatus('Connection failed', false);
-        showNotification('Failed to connect to server', 'error');
-        attemptReconnect();
+        
+        if (isLoggingIn) {
+            resetLoginForm();
+            showLoginError('Failed to connect to server. Please try again.');
+        } else {
+            showNotification('Failed to connect to server', 'error');
+            attemptReconnect();
+        }
     }
 }
 
@@ -218,10 +247,19 @@ function handleServerMessage(data) {
             break;
             
         case 'error':
-            showNotification(data.message || 'An error occurred', 'error');
+            // If we're in the login process, show error on login screen
+            if (isLoggingIn) {
+                resetLoginForm();
+                showLoginError(data.message || 'An error occurred during login');
+            } else {
+                showNotification(data.message || 'An error occurred', 'error');
+            }
             break;
             
         case 'authSuccess':
+            // Login successful - proceed to chat
+            isLoggingIn = false;
+            showChatInterface();
             showNotification(`Welcome to ChatHub, ${data.username}!`, 'success');
             // Auto-join general room
             joinRoom('general');
@@ -234,10 +272,25 @@ function handleServerMessage(data) {
 
 function sendMessage(data) {
     if (socket && socket.readyState === WebSocket.OPEN) {
+        // Additional validation for auth messages
+        if (data.type === 'auth' && (!data.username || data.username.trim() === '')) {
+            console.error('Attempted to send empty username for authentication');
+            if (isLoggingIn) {
+                resetLoginForm();
+                showLoginError('Invalid username. Please try again.');
+            }
+            return false;
+        }
+        
         socket.send(JSON.stringify(data));
         return true;
     } else {
-        showNotification('Not connected to server', 'warning');
+        if (isLoggingIn) {
+            resetLoginForm();
+            showLoginError('Connection lost. Please try again.');
+        } else {
+            showNotification('Not connected to server', 'warning');
+        }
         return false;
     }
 }
@@ -262,31 +315,84 @@ function handleLogin(e) {
     e.preventDefault();
     const username = document.getElementById('username').value.trim();
     const errorElement = document.getElementById('loginError');
+    const submitButton = e.target.querySelector('button[type="submit"]');
     
-    if (!username) {
-        errorElement.textContent = 'Please enter a username';
+    // Clear previous errors
+    errorElement.textContent = '';
+    
+    if (!username || username === '') {
+        showLoginError('Please enter a username');
         return;
     }
     
     if (username.length > 20) {
-        errorElement.textContent = 'Username must be 20 characters or less';
+        showLoginError('Username must be 20 characters or less');
         return;
     }
     
     if (!/^[A-Za-z0-9_-]+$/.test(username)) {
-        errorElement.textContent = 'Username can only contain letters, numbers, underscore and hyphen';
+        showLoginError('Username can only contain letters, numbers, underscore and hyphen');
         return;
     }
     
+    // Additional validation to prevent empty or whitespace-only usernames
+    if (username.replace(/\s/g, '') === '') {
+        showLoginError('Username cannot be empty or contain only spaces');
+        return;
+    }
+    
+    // Disable submit button and show loading state
+    submitButton.disabled = true;
+    submitButton.textContent = 'Connecting...';
+    isLoggingIn = true;
+    
+    // Only set currentUser after all validations pass
     currentUser = username;
     users.add(username);
     
+    // Connect to WebSocket for authentication
+    initializeWebSocket();
+}
+
+function resetLoginForm() {
+    const submitButton = document.querySelector('#loginForm button[type="submit"]');
+    const usernameInput = document.getElementById('username');
+    
+    if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Join Chat';
+    }
+    
+    if (usernameInput) {
+        usernameInput.focus();
+    }
+    
+    isLoggingIn = false;
+    
+    // Clear currentUser only if login failed
+    if (isLoggingIn === false) {
+        currentUser = '';
+        users.clear(); // Clear the users set as well
+    }
+    
+    // Close socket if open
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close(1000, 'Login cancelled');
+    }
+}
+
+function showLoginError(message) {
+    const errorElement = document.getElementById('loginError');
+    if (errorElement) {
+        errorElement.textContent = message;
+        errorElement.style.display = 'block';
+    }
+}
+
+function showChatInterface() {
     // Hide login screen and show chat
     document.getElementById('loginScreen').classList.add('hidden');
-    document.getElementById('currentUser').textContent = username;
-    
-    // Connect to WebSocket
-    initializeWebSocket();
+    document.getElementById('currentUser').textContent = currentUser;
     
     // Initialize UI
     renderRooms();
